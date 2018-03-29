@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 	term "github.com/nsf/termbox-go"
-	curses "github.com/xaionaro-go/goncurses"
 	fwsmAPI "github.com/xaionaro-go/fwsmAPI/app/common"
+	curses "github.com/xaionaro-go/goncurses"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -94,6 +94,13 @@ func checkAndReformatConfig() bool {
 func clearScreen() {
 	cmd := exec.Command("clear")
 	cmd.Stdout = os.Stdout
+	cmd.Run()
+}
+
+func resetScreen() {
+	cmd := exec.Command("reset")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	cmd.Run()
 }
 
@@ -189,13 +196,23 @@ func commitConfiguration() {
 }
 
 func runLinuxTerminal() {
-	cmd := exec.Command("bash")
-	cmd.Stdin = os.Stdin
-	cmd.Stderr = os.Stderr
-	cmd.Stdout = os.Stdout
-	err := cmd.Run()
-	if err != nil {
-		panic(err)
+	resetScreen()
+	{
+		cmd := exec.Command("screen", "-x", "-S", "openmswfShellTerminal")
+		cmd.Stdin = os.Stdin
+		cmd.Stderr = os.Stderr
+		cmd.Stdout = os.Stdout
+		err := cmd.Run()
+		if err == nil {
+			return
+		}
+	}
+	{
+		cmd := exec.Command("screen", "-S", "openmswfShellTerminal", "/bin/bash")
+		cmd.Stdin = os.Stdin
+		cmd.Stderr = os.Stderr
+		cmd.Stdout = os.Stdout
+		cmd.Run()
 	}
 }
 
