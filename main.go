@@ -401,6 +401,7 @@ func initEverything() {
 		fwsmAPIClientConfigFile, err := ioutil.ReadFile(FWSM_API_CLIENT_CONFIG_PATH)
 		if err != nil {
 			reinitFwsmAPIClientConfigFile()
+			continue
 		}
 		var fwsmAPIClientConfig fwsmAPIClientConfig
 		json.Unmarshal(fwsmAPIClientConfigFile, &fwsmAPIClientConfig)
