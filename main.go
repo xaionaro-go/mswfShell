@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	revelConfig "github.com/revel/config"
 	term "github.com/nsf/termbox-go"
 	fwsmRoutines "github.com/xaionaro-go/fwsmAPI/app/common"
 	fwsmAPIClient "github.com/xaionaro-go/fwsmAPI/clientLib"
@@ -12,12 +13,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
 )
 
 const (
+	FWSM_API_CONFIG_PATH        = "/root/go/src/github.com/xaionaro-go/mswfAPI/conf/app.conf"
 	FWSM_API_CLIENT_CONFIG_PATH = "/etc/fwsm-api-client.json"
 )
 
@@ -26,6 +29,7 @@ var (
 	openAtLine    = -1
 	window        *curses.Window
 	fwsmAPI       *fwsmAPIClient.FwsmAPIClient
+	fwsmApiConfig *revelConfig.Config
 )
 
 func waitForAnyKey(msg string, validKeys ...term.Key) (event term.Event) {
@@ -175,19 +179,170 @@ func editRunningConfig() {
 }
 
 type fwsmAPIClientConfig struct {
-	Host   string
-	Port   int
-	User   string
+	Host   string `defaultValue:"localhost"`
+	Port   int    `defaultValue:"9000"`
+	User   string `defaultValue:"openmswfShell"`
 	Pass   string
-	Scheme string
+	Scheme string `defaultValue:"http"`
+}
+
+func tryReinitFwsmAPIClientConfigFile() bool {
+	defaultValues := map[string]string{}
+	fieldNames := []string{}
+
+	// scanning structure "fwsmAPIClientConfig"
+
+	maxFieldLen := 0
+	var fwsmAPIClientConfig fwsmAPIClientConfig
+	fwsmAPIClientConfigV := reflect.ValueOf(&fwsmAPIClientConfig).Elem()
+	for i := 0; i < fwsmAPIClientConfigV.NumField(); i++ {
+		cfgFieldT := fwsmAPIClientConfigV.Type().Field(i)
+		cfgFieldName := cfgFieldT.Name
+		fieldNames = append(fieldNames, cfgFieldName)
+		if len(cfgFieldT.Name) > maxFieldLen {
+			maxFieldLen = len(cfgFieldName)
+		}
+		defaultValues[cfgFieldName] = cfgFieldT.Tag.Get("defaultValue")
+	}
+
+	// getting the default password
+
+	userId := 0
+	for {
+		userLogin, err := fwsmApiConfig.String("prod", fmt.Sprintf("user%v.login", userId))
+		if userLogin == "" || err != nil {
+			break
+		}
+		if userLogin == defaultValues["User"] {
+			defaultValues["Pass"], _ = fwsmApiConfig.String("prod", fmt.Sprintf("user%v.password", userId))
+		}
+		userId++
+	}
+
+	// the form
+
+	curses.Echo(false)
+	curses.CBreak(true)
+	curses.StartColor()
+	window.Keypad(true)
+
+	window.Refresh()
+	curses.InitPair(1, curses.C_WHITE, curses.C_BLUE)
+	curses.InitPair(2, curses.C_YELLOW, curses.C_BLUE)
+
+	fields := map[string]*curses.Field{}
+	fieldsArray := []*curses.Field{}
+	for idx, fieldName := range fieldNames {
+		fields[fieldName], _ = curses.NewField(1, 30, 4+int32(idx), int32(maxFieldLen)+12, 0, 0)
+		defer fields[fieldName].Free()
+		fields[fieldName].SetForeground(curses.ColorPair(1))
+		fields[fieldName].SetBackground(curses.ColorPair(2))
+		fields[fieldName].SetOptionsOff(curses.FO_AUTOSKIP)
+		fields[fieldName].SetBuffer(defaultValues[fieldName])
+		fieldsArray = append(fieldsArray, fields[fieldName])
+	}
+
+	form, _ := curses.NewForm(fieldsArray)
+	form.Post()
+	defer form.UnPost()
+	defer form.Free()
+
+	for idx, fieldName := range fieldNames {
+		window.MovePrint(4+idx, 10, fieldName+": ")
+		form.Driver(curses.REQ_FIRST_FIELD)
+	}
+
+	//form.SetCurrentField(fields["Pass"])
+	considerActiveField := func() {
+		currentField := form.CurrentField()
+		for _, fieldName := range fieldNames {
+			field := fields[fieldName]
+			if field == currentField {
+				continue
+			}
+			field.SetBackground(curses.ColorPair(2))
+		}
+		currentField.SetBackground(curses.ColorPair(2) | curses.A_UNDERLINE | curses.A_BOLD)
+	}
+
+	considerActiveField()
+
+	formIsRunning := true
+
+	window.Refresh()
+	for formIsRunning {
+		ch := window.GetChar()
+		switch ch {
+		case curses.KEY_ENTER, 10, 13: // if enter is pressed
+			form.Driver(curses.REQ_END_LINE);
+			formIsRunning = false
+		case curses.KEY_DOWN, curses.KEY_TAB:
+			form.Driver(curses.REQ_NEXT_FIELD)
+			form.Driver(curses.REQ_END_LINE)
+		case curses.KEY_UP:
+			form.Driver(curses.REQ_PREV_FIELD)
+			form.Driver(curses.REQ_END_LINE)
+		case curses.KEY_BACKSPACE:
+			form.Driver(curses.REQ_CLR_FIELD)
+		default:
+			form.Driver(ch)
+		}
+		considerActiveField()
+	}
+
+	// setting resulting values into fwsmAPIClientConfig
+
+	for i := 0; i < fwsmAPIClientConfigV.NumField(); i++ {
+		cfgField  := fwsmAPIClientConfigV.Field(i)
+		cfgFieldT := fwsmAPIClientConfigV.Type().Field(i)
+		cfgFieldName := cfgFieldT.Name
+
+		newValue := strings.Trim(fields[cfgFieldName].Buffer(), " ")
+
+		switch cfgField.Interface().(type) {
+		case string:
+			cfgField.Set(reflect.ValueOf(newValue))
+		case int:
+			newIntValue, err := strconv.Atoi(newValue)
+			if err != nil {
+				runCommandInTerminal("echo", "invalid integer", newValue, ": ", err.Error())
+				return false
+			}
+			cfgField.Set(reflect.ValueOf(newIntValue))
+		}
+		fieldNames = append(fieldNames, cfgFieldName)
+		if len(cfgFieldT.Name) > maxFieldLen {
+			maxFieldLen = len(cfgFieldName)
+		}
+		defaultValues[cfgFieldName] = cfgFieldT.Tag.Get("defaultValue")
+	}
+
+	// writting the result into the configuration file
+
+	{
+		fwsmAPIClientConfigJson, _ := json.MarshalIndent(fwsmAPIClientConfig, "", " ")
+		err := ioutil.WriteFile(FWSM_API_CLIENT_CONFIG_PATH, fwsmAPIClientConfigJson, 0400)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	return true
 }
 
 func reinitFwsmAPIClientConfigFile() {
-
+	for !tryReinitFwsmAPIClientConfigFile() {}
 }
 
 func initEverything() {
-	err := term.Init()
+	var err error
+
+	fwsmApiConfig, err = revelConfig.ReadDefault(FWSM_API_CONFIG_PATH)
+	if err != nil {
+		panic(err)
+	}
+
+	err = term.Init()
 	if err != nil {
 		panic(err)
 	}
