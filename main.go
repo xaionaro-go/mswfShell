@@ -6,8 +6,8 @@ import (
 	"fmt"
 	revelConfig "github.com/revel/config"
 	term "github.com/nsf/termbox-go"
-	fwsmRoutines "github.com/xaionaro-go/fwsmAPI/app/common"
-	fwsmAPIClient "github.com/xaionaro-go/fwsmAPI/clientLib"
+	mswfRoutines "github.com/xaionaro-go/mswfAPI/app/common"
+	mswfAPIClient "github.com/xaionaro-go/mswfAPI/clientLib"
 	curses "github.com/xaionaro-go/goncurses"
 	"io/ioutil"
 	"os"
@@ -21,16 +21,16 @@ import (
 )
 
 const (
-	FWSM_API_CONFIG_PATH        = "/root/go/src/github.com/xaionaro-go/mswfAPI/conf/app.conf"
-	FWSM_API_CLIENT_CONFIG_PATH = "/etc/fwsm-api-client.json"
+	MSWF_API_CONFIG_PATH        = "/root/go/src/github.com/xaionaro-go/mswfAPI/conf/app.conf"
+	MSWF_API_CLIENT_CONFIG_PATH = "/etc/mswf-api-client.json"
 )
 
 var (
 	lineNumRegexp = regexp.MustCompile(`line#\d+`)
 	openAtLine    = -1
 	window        *curses.Window
-	fwsmAPI       *fwsmAPIClient.FwsmAPIClient
-	fwsmApiConfig *revelConfig.Config
+	mswfAPI       *mswfAPIClient.MswfAPIClient
+	mswfApiConfig *revelConfig.Config
 )
 
 func waitForAnyKey(msg string, validKeys ...term.Key) (event term.Event) {
@@ -76,9 +76,9 @@ func openConfigEditor() {
 }
 
 func checkAndReformatConfig() bool {
-	err := fwsmRoutines.ReadConfig()
+	err := mswfRoutines.ReadConfig()
 	if err == nil {
-		err = fwsmRoutines.FWSMConfig.Save(nil, fwsmRoutines.FWSM_CONFIG_PATH)
+		err = mswfRoutines.FWSMConfig.Save(nil, mswfRoutines.FWSM_CONFIG_PATH)
 		if err != nil {
 			panic(err)
 		}
@@ -179,7 +179,7 @@ func editRunningConfig() {
 	}
 }
 
-type fwsmAPIClientConfig struct {
+type mswfAPIClientConfig struct {
 	Host   string `defaultValue:"localhost"`
 	Port   int    `defaultValue:"9000"`
 	User   string `defaultValue:"openmswfShell"`
@@ -187,8 +187,8 @@ type fwsmAPIClientConfig struct {
 	Scheme string `defaultValue:"http"`
 }
 
-func (cfg fwsmAPIClientConfig) Check() error {
-	temporaryFwsmAPIClient := fwsmAPIClient.New(&fwsmAPIClient.FwsmAPIClientNewArgs{
+func (cfg mswfAPIClientConfig) Check() error {
+	temporaryMswfAPIClient := mswfAPIClient.New(&mswfAPIClient.MswfAPIClientNewArgs{
 		Host:   cfg.Host,
 		Port:   cfg.Port,
 		User:   cfg.User,
@@ -196,10 +196,10 @@ func (cfg fwsmAPIClientConfig) Check() error {
 		Scheme: cfg.Scheme,
 	})
 
-	return temporaryFwsmAPIClient.CheckConnection()
+	return temporaryMswfAPIClient.CheckConnection()
 }
 
-func tryReinitFwsmAPIClientConfigFile() bool {
+func tryReinitMswfAPIClientConfigFile() bool {
 	defaultValues := map[string]string{}
 	fieldNames := []string{}
 
@@ -212,13 +212,13 @@ func tryReinitFwsmAPIClientConfigFile() bool {
 		window.Refresh()
 	}
 
-	// scanning structure "fwsmAPIClientConfig"
+	// scanning structure "mswfAPIClientConfig"
 
 	maxFieldLen := 0
-	var fwsmAPIClientConfig fwsmAPIClientConfig
-	fwsmAPIClientConfigV := reflect.ValueOf(&fwsmAPIClientConfig).Elem()
-	for i := 0; i < fwsmAPIClientConfigV.NumField(); i++ {
-		cfgFieldT := fwsmAPIClientConfigV.Type().Field(i)
+	var mswfAPIClientConfig mswfAPIClientConfig
+	mswfAPIClientConfigV := reflect.ValueOf(&mswfAPIClientConfig).Elem()
+	for i := 0; i < mswfAPIClientConfigV.NumField(); i++ {
+		cfgFieldT := mswfAPIClientConfigV.Type().Field(i)
 		cfgFieldName := cfgFieldT.Name
 		fieldNames = append(fieldNames, cfgFieldName)
 		if len(cfgFieldT.Name) > maxFieldLen {
@@ -231,12 +231,12 @@ func tryReinitFwsmAPIClientConfigFile() bool {
 
 	userId := 0
 	for {
-		userLogin, err := fwsmApiConfig.String("prod", fmt.Sprintf("user%v.login", userId))
+		userLogin, err := mswfApiConfig.String("prod", fmt.Sprintf("user%v.login", userId))
 		if userLogin == "" || err != nil {
 			break
 		}
 		if userLogin == defaultValues["User"] {
-			defaultValues["Pass"], _ = fwsmApiConfig.String("prod", fmt.Sprintf("user%v.password", userId))
+			defaultValues["Pass"], _ = mswfApiConfig.String("prod", fmt.Sprintf("user%v.password", userId))
 		}
 		userId++
 	}
@@ -312,11 +312,11 @@ func tryReinitFwsmAPIClientConfigFile() bool {
 		considerActiveField()
 	}
 
-	// setting resulting values into fwsmAPIClientConfig
+	// setting resulting values into mswfAPIClientConfig
 
-	for i := 0; i < fwsmAPIClientConfigV.NumField(); i++ {
-		cfgField  := fwsmAPIClientConfigV.Field(i)
-		cfgFieldT := fwsmAPIClientConfigV.Type().Field(i)
+	for i := 0; i < mswfAPIClientConfigV.NumField(); i++ {
+		cfgField  := mswfAPIClientConfigV.Field(i)
+		cfgFieldT := mswfAPIClientConfigV.Type().Field(i)
 		cfgFieldName := cfgFieldT.Name
 
 		newValue := strings.Trim(fields[cfgFieldName].Buffer(), " ")
@@ -342,7 +342,7 @@ func tryReinitFwsmAPIClientConfigFile() bool {
 	// testing
 
 	{
-		err := fwsmAPIClientConfig.Check()
+		err := mswfAPIClientConfig.Check()
 		if err != nil {
 			reportError("cannot connect to the API server", err.Error())
 			return false
@@ -352,8 +352,8 @@ func tryReinitFwsmAPIClientConfigFile() bool {
 	// writting the result into the configuration file
 
 	{
-		fwsmAPIClientConfigJson, _ := json.MarshalIndent(fwsmAPIClientConfig, "", " ")
-		err := ioutil.WriteFile(FWSM_API_CLIENT_CONFIG_PATH, fwsmAPIClientConfigJson, 0400)
+		mswfAPIClientConfigJson, _ := json.MarshalIndent(mswfAPIClientConfig, "", " ")
+		err := ioutil.WriteFile(MSWF_API_CLIENT_CONFIG_PATH, mswfAPIClientConfigJson, 0400)
 		if err != nil {
 			panic(err)
 		}
@@ -362,16 +362,16 @@ func tryReinitFwsmAPIClientConfigFile() bool {
 	return true
 }
 
-func reinitFwsmAPIClientConfigFile() {
-	for !tryReinitFwsmAPIClientConfigFile() {}
+func reinitMswfAPIClientConfigFile() {
+	for !tryReinitMswfAPIClientConfigFile() {}
 }
 
 func initEverything() {
 	var err error
 
-	// FWSM API internal configuration
+	// MSWF API internal configuration
 
-	fwsmApiConfig, err = revelConfig.ReadDefault(FWSM_API_CONFIG_PATH)
+	mswfApiConfig, err = revelConfig.ReadDefault(MSWF_API_CONFIG_PATH)
 	if err != nil {
 		panic(err)
 	}
@@ -392,32 +392,32 @@ func initEverything() {
 
 	// chdir()
 
-	dir := filepath.Dir(fwsmRoutines.FWSM_CONFIG_PATH)
+	dir := filepath.Dir(mswfRoutines.FWSM_CONFIG_PATH)
 	os.Chdir(dir)
 
-	// read FWSM API client configuration
+	// read MSWF API client configuration
 
 	for {
-		fwsmAPIClientConfigFile, err := ioutil.ReadFile(FWSM_API_CLIENT_CONFIG_PATH)
+		mswfAPIClientConfigFile, err := ioutil.ReadFile(MSWF_API_CLIENT_CONFIG_PATH)
 		if err != nil {
-			reinitFwsmAPIClientConfigFile()
+			reinitMswfAPIClientConfigFile()
 			continue
 		}
-		var fwsmAPIClientConfig fwsmAPIClientConfig
-		json.Unmarshal(fwsmAPIClientConfigFile, &fwsmAPIClientConfig)
+		var mswfAPIClientConfig mswfAPIClientConfig
+		json.Unmarshal(mswfAPIClientConfigFile, &mswfAPIClientConfig)
 
-		err = fwsmAPIClientConfig.Check()
+		err = mswfAPIClientConfig.Check()
 		if err != nil {
-			reinitFwsmAPIClientConfigFile()
+			reinitMswfAPIClientConfigFile()
 			continue
 		}
 
-		fwsmAPI = fwsmAPIClient.New(&fwsmAPIClient.FwsmAPIClientNewArgs{
-			Host:   fwsmAPIClientConfig.Host,
-			Port:   fwsmAPIClientConfig.Port,
-			User:   fwsmAPIClientConfig.User,
-			Pass:   fwsmAPIClientConfig.Pass,
-			Scheme: fwsmAPIClientConfig.Scheme,
+		mswfAPI = mswfAPIClient.New(&mswfAPIClient.MswfAPIClientNewArgs{
+			Host:   mswfAPIClientConfig.Host,
+			Port:   mswfAPIClientConfig.Port,
+			User:   mswfAPIClientConfig.User,
+			Pass:   mswfAPIClientConfig.Pass,
+			Scheme: mswfAPIClientConfig.Scheme,
 		})
 
 		break
@@ -456,11 +456,11 @@ func showARP() {
 }
 
 func doReloadConfig() error {
-	err := fwsmAPI.Reload()
+	err := mswfAPI.Reload()
 	if err != nil {
 		return err
 	}
-	return fwsmAPI.Apply()
+	return mswfAPI.Apply()
 }
 
 func stashConfiguration() error {
