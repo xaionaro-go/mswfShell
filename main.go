@@ -371,6 +371,7 @@ func initEverything() {
 
 	// MSWF API internal configuration
 
+	fmt.Println("Reading MSWF API internal configuration")
 	mswfApiConfig, err = revelConfig.ReadDefault(MSWF_API_CONFIG_PATH)
 	if err != nil {
 		panic(err)
@@ -378,6 +379,7 @@ func initEverything() {
 
 	// terminal
 
+	fmt.Println("Initializing terminal routines")
 	err = term.Init()
 	if err != nil {
 		panic(err)
@@ -385,6 +387,7 @@ func initEverything() {
 
 	// curses
 
+	fmt.Println("Initializing ncurses routines")
 	window, err = curses.Init()
 	if err != nil {
 		panic(err)
@@ -397,7 +400,10 @@ func initEverything() {
 
 	// read MSWF API client configuration
 
+	fmt.Println("Initializing MSWF API client")
+
 	for {
+		fmt.Println("\tReading MSWF API client configuration")
 		mswfAPIClientConfigFile, err := ioutil.ReadFile(MSWF_API_CLIENT_CONFIG_PATH)
 		if err != nil {
 			reinitMswfAPIClientConfigFile()
@@ -406,6 +412,7 @@ func initEverything() {
 		var mswfAPIClientConfig mswfAPIClientConfig
 		json.Unmarshal(mswfAPIClientConfigFile, &mswfAPIClientConfig)
 
+		fmt.Println("\tChecking MSWF API client configuration (connecting to the API server)")
 		err = mswfAPIClientConfig.Check()
 		if err != nil {
 			reinitMswfAPIClientConfigFile()
@@ -422,6 +429,7 @@ func initEverything() {
 
 		break
 	}
+	fmt.Println("Fully initialized")
 }
 
 func deinitEverything() {
