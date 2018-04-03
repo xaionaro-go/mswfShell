@@ -369,40 +369,58 @@ func reinitFwsmAPIClientConfigFile() {
 func initEverything() {
 	var err error
 
+	// FWSM API internal configuration
+
 	fwsmApiConfig, err = revelConfig.ReadDefault(FWSM_API_CONFIG_PATH)
 	if err != nil {
 		panic(err)
 	}
+
+	// terminal
 
 	err = term.Init()
 	if err != nil {
 		panic(err)
 	}
 
+	// curses
+
 	window, err = curses.Init()
 	if err != nil {
 		panic(err)
 	}
 
+	// chdir()
+
 	dir := filepath.Dir(fwsmRoutines.FWSM_CONFIG_PATH)
-
 	os.Chdir(dir)
-	//initSignals()
 
-	fwsmAPIClientConfigFile, err := ioutil.ReadFile(FWSM_API_CLIENT_CONFIG_PATH)
-	if err != nil {
-		reinitFwsmAPIClientConfigFile()
+	// read FWSM API client configuration
+
+	for {
+		fwsmAPIClientConfigFile, err := ioutil.ReadFile(FWSM_API_CLIENT_CONFIG_PATH)
+		if err != nil {
+			reinitFwsmAPIClientConfigFile()
+		}
+		var fwsmAPIClientConfig fwsmAPIClientConfig
+		json.Unmarshal(fwsmAPIClientConfigFile, &fwsmAPIClientConfig)
+
+		err = fwsmAPIClientConfig.Check()
+		if err != nil {
+			reinitFwsmAPIClientConfigFile()
+			continue
+		}
+
+		fwsmAPI = fwsmAPIClient.New(&fwsmAPIClient.FwsmAPIClientNewArgs{
+			Host:   fwsmAPIClientConfig.Host,
+			Port:   fwsmAPIClientConfig.Port,
+			User:   fwsmAPIClientConfig.User,
+			Pass:   fwsmAPIClientConfig.Pass,
+			Scheme: fwsmAPIClientConfig.Scheme,
+		})
+
+		break
 	}
-	var fwsmAPIClientConfig fwsmAPIClientConfig
-	json.Unmarshal(fwsmAPIClientConfigFile, &fwsmAPIClientConfig)
-
-	fwsmAPI = fwsmAPIClient.New(&fwsmAPIClient.FwsmAPIClientNewArgs{
-		Host:   fwsmAPIClientConfig.Host,
-		Port:   fwsmAPIClientConfig.Port,
-		User:   fwsmAPIClientConfig.User,
-		Pass:   fwsmAPIClientConfig.Pass,
-		Scheme: fwsmAPIClientConfig.Scheme,
-	})
 }
 
 func deinitEverything() {
