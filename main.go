@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -186,9 +187,30 @@ type fwsmAPIClientConfig struct {
 	Scheme string `defaultValue:"http"`
 }
 
+func (cfg fwsmAPIClientConfig) Check() error {
+	temporaryFwsmAPIClient := fwsmAPIClient.New(&fwsmAPIClient.FwsmAPIClientNewArgs{
+		Host:   cfg.Host,
+		Port:   cfg.Port,
+		User:   cfg.User,
+		Pass:   cfg.Pass,
+		Scheme: cfg.Scheme,
+	})
+
+	return temporaryFwsmAPIClient.CheckConnection()
+}
+
 func tryReinitFwsmAPIClientConfigFile() bool {
 	defaultValues := map[string]string{}
 	fieldNames := []string{}
+
+	reportError := func(msg string, args ...interface{}) {
+		curses.DefProgMode()
+		curses.End()
+		time.Sleep(time.Millisecond*100)
+		waitForAnyKey(fmt.Sprintf("Got error \"%v\": %v. Press any key to retry…", msg, args))
+		curses.ResetProgMode()
+		window.Refresh()
+	}
 
 	// scanning structure "fwsmAPIClientConfig"
 
@@ -305,7 +327,7 @@ func tryReinitFwsmAPIClientConfigFile() bool {
 		case int:
 			newIntValue, err := strconv.Atoi(newValue)
 			if err != nil {
-				runCommandInTerminal("echo", "invalid integer", newValue, ": ", err.Error())
+				reportError("invalid integer", newValue, err.Error())
 				return false
 			}
 			cfgField.Set(reflect.ValueOf(newIntValue))
@@ -315,6 +337,16 @@ func tryReinitFwsmAPIClientConfigFile() bool {
 			maxFieldLen = len(cfgFieldName)
 		}
 		defaultValues[cfgFieldName] = cfgFieldT.Tag.Get("defaultValue")
+	}
+
+	// testing
+
+	{
+		err := fwsmAPIClientConfig.Check()
+		if err != nil {
+			reportError("cannot connect to the API server", err.Error())
+			return false
+		}
 	}
 
 	// writting the result into the configuration file
