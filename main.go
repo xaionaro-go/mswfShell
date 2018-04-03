@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	term "github.com/nsf/termbox-go"
-	fwsmAPI "github.com/xaionaro-go/fwsmAPI/app/common"
+	fwsmRoutines "github.com/xaionaro-go/fwsmAPI/app/common"
+	fwsmAPIClient "github.com/xaionaro-go/fwsmAPI/clientLib"
 	curses "github.com/xaionaro-go/goncurses"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,10 +17,15 @@ import (
 	"strings"
 )
 
+const (
+	FWSM_API_CLIENT_CONFIG_PATH = "/etc/fwsm-api-client.json"
+)
+
 var (
 	lineNumRegexp = regexp.MustCompile(`line#\d+`)
 	openAtLine    = -1
 	window        *curses.Window
+	fwsmAPI       *fwsmAPIClient.FwsmAPIClient
 )
 
 func waitForAnyKey(msg string, validKeys ...term.Key) (event term.Event) {
@@ -62,9 +71,9 @@ func openConfigEditor() {
 }
 
 func checkAndReformatConfig() bool {
-	err := fwsmAPI.ReadConfig()
+	err := fwsmRoutines.ReadConfig()
 	if err == nil {
-		err = fwsmAPI.FWSMConfig.Save(nil, fwsmAPI.FWSM_CONFIG_PATH)
+		err = fwsmRoutines.FWSMConfig.Save(nil, fwsmRoutines.FWSM_CONFIG_PATH)
 		if err != nil {
 			panic(err)
 		}
@@ -84,7 +93,8 @@ func checkAndReformatConfig() bool {
 	event := waitForAnyKey("There're errors. Press \"escape\" to cancel the changes or \"space\" to return.", term.KeyEsc, term.KeySpace)
 	switch event.Key {
 	case term.KeyEsc:
-		exec.Command("git", "stash").Run()
+		doStashConfig()
+		openAtLine = -1
 		return true
 	}
 
@@ -92,34 +102,52 @@ func checkAndReformatConfig() bool {
 }
 
 func clearScreen() {
-	cmd := exec.Command("clear")
-	cmd.Stdout = os.Stdout
-	cmd.Run()
+	runCommandInTerminal("clear")
 }
 
 func resetScreen() {
-	cmd := exec.Command("reset")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Run()
+	runCommandInTerminal("reset")
 }
 
-func commitConfig() {
-	cmd := exec.Command("git", "commit", "dynamic")
+func runCommandInTerminal(cmdStrings ...string) error {
+	cmd := exec.Command(cmdStrings[0], cmdStrings[1:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout
 	err := cmd.Run()
 	if err != nil {
-		panic(err)
+		return err
 	}
+	return nil
+}
+
+func executeCommand(cmdStrings ...string) error {
+	cmd := exec.Command(cmdStrings[0], cmdStrings[1:]...)
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("Got an error while execution of %v: %v\nstdout: %v\nstderr: %v", cmdStrings, err, out.String(), stderr.String())
+	}
+	return nil
+}
+
+func doStashConfig() error {
+	return executeCommand("git", "stash")
+}
+
+func doCommitConfig() error {
+	return runCommandInTerminal("git", "commit", "dynamic")
+}
+
+func doPushConfig() error {
+	return runCommandInTerminal("git", "push")
 }
 
 func isConfigChanged() bool {
-	cmd := exec.Command("git", "diff", "--exit-code", "dynamic")
-	cmd.Stderr = os.Stderr
-	cmd.Stdout = os.Stdout
-	err := cmd.Run()
+	err := runCommandInTerminal("git", "diff", "--exit-code", "dynamic")
 	if err == nil {
 		return false
 	}
@@ -141,9 +169,21 @@ func editRunningConfig() {
 			fmt.Println(`Nothing changed.`)
 			return
 		}
-		commitConfig()
+		doReloadConfig()
 		break
 	}
+}
+
+type fwsmAPIClientConfig struct {
+	Host   string
+	Port   int
+	User   string
+	Pass   string
+	Scheme string
+}
+
+func reinitFwsmAPIClientConfigFile() {
+
 }
 
 func initEverything() {
@@ -157,10 +197,25 @@ func initEverything() {
 		panic(err)
 	}
 
-	dir := filepath.Dir(fwsmAPI.FWSM_CONFIG_PATH)
+	dir := filepath.Dir(fwsmRoutines.FWSM_CONFIG_PATH)
 
 	os.Chdir(dir)
 	//initSignals()
+
+	fwsmAPIClientConfigFile, err := ioutil.ReadFile(FWSM_API_CLIENT_CONFIG_PATH)
+	if err != nil {
+		reinitFwsmAPIClientConfigFile()
+	}
+	var fwsmAPIClientConfig fwsmAPIClientConfig
+	json.Unmarshal(fwsmAPIClientConfigFile, &fwsmAPIClientConfig)
+
+	fwsmAPI = fwsmAPIClient.New(&fwsmAPIClient.FwsmAPIClientNewArgs{
+		Host:   fwsmAPIClientConfig.Host,
+		Port:   fwsmAPIClientConfig.Port,
+		User:   fwsmAPIClientConfig.User,
+		Pass:   fwsmAPIClientConfig.Pass,
+		Scheme: fwsmAPIClientConfig.Scheme,
+	})
 }
 
 func deinitEverything() {
@@ -181,39 +236,52 @@ func getTotalTraffic() int {
 }
 
 func showInterfaces() {
-	cmd := exec.Command("sh", "-c", "ifconfig | less")
-	cmd.Stdin = os.Stdin
-	cmd.Stderr = os.Stderr
-	cmd.Stdout = os.Stdout
-	err := cmd.Run()
+	err := runCommandInTerminal("sh", "-c", "clear; ifconfig | less")
 	if err != nil {
 		panic(err)
 	}
 }
 
-func commitConfiguration() {
-	panic("not implemented, yet")
+func showARP() {
+	err := runCommandInTerminal("sh", "-c", "clear; arp -na | sort | less")
+	if err != nil {
+		panic(err)
+	}
+}
+
+func doReloadConfig() error {
+	err := fwsmAPI.Reload()
+	if err != nil {
+		return err
+	}
+	return fwsmAPI.Apply()
+}
+
+func stashConfiguration() error {
+	err := doStashConfig()
+	if err != nil {
+		return err
+	}
+
+	return doReloadConfig()
+}
+
+func commitConfiguration() error {
+	err := doCommitConfig()
+	if err != nil {
+		return err
+	}
+	return doPushConfig()
 }
 
 func runLinuxTerminal() {
 	resetScreen()
-	{
-		cmd := exec.Command("screen", "-x", "-S", "openmswfShellTerminal")
-		cmd.Stdin = os.Stdin
-		cmd.Stderr = os.Stderr
-		cmd.Stdout = os.Stdout
-		err := cmd.Run()
-		if err == nil {
-			return
-		}
+	err := runCommandInTerminal("screen", "-x", "-S", "openmswfShellTerminal")
+	if err == nil {
+		return
 	}
-	{
-		cmd := exec.Command("screen", "-S", "openmswfShellTerminal", "/bin/bash")
-		cmd.Stdin = os.Stdin
-		cmd.Stderr = os.Stderr
-		cmd.Stdout = os.Stdout
-		cmd.Run()
-	}
+	exec.Command("sh", "-c", `kill $(ls /var/run/screen/*/*.openmswfShellTerminal | sed -e 's%.*/%%g' -e 's%\..*%%g') 2>/dev/null`).Run()
+	runCommandInTerminal("screen", "-S", "openmswfShellTerminal", "/bin/bash")
 }
 
 func mainWindow() {
@@ -224,7 +292,7 @@ func mainWindow() {
 	window.Keypad(true)
 	curses.InitPair(1, curses.C_RED, curses.C_BLACK)
 
-	menu_items := []string{"config terminal", "show interfaces", "copy running-config startup-config", "linux terminal", "exit"}
+	menu_items := []string{"config terminal", "show interfaces", "show arp", "copy running-config startup-config", "copy startup-config running-config", "linux terminal", "exit"}
 
 	items := make([]*curses.MenuItem, len(menu_items))
 	for i, val := range menu_items {
@@ -236,11 +304,11 @@ func mainWindow() {
 	menu, _ := curses.NewMenu(items)
 	defer menu.Free()
 
-	menuwin, _ := curses.NewWindow(9, 41, 4, 14)
+	menuwin, _ := curses.NewWindow(len(menu_items)+4, 41, 4, 14)
 	menuwin.Keypad(true)
 
 	menu.SetWindow(menuwin)
-	dwin := menuwin.Derived(5, 39, 3, 1)
+	dwin := menuwin.Derived(len(menu_items), 39, 3, 1)
 	menu.SubWindow(dwin)
 	menu.Mark(" > ")
 
@@ -263,9 +331,30 @@ func mainWindow() {
 	defer menu.UnPost()
 	menuwin.Refresh()
 
+	textOutput, _ := curses.NewWindow(24, 80, 6, 58)
+
+	printError := func(err error) {
+		if err == nil {
+			err = fmt.Errorf("unknown error")
+		}
+		textOutput.MovePrint(0, 0, err.Error())
+		textOutput.Refresh()
+		return
+	}
+	printSuccess := func() {
+		textOutput.MovePrint(0, 0, "OK!")
+		textOutput.Refresh()
+		return
+	}
+	clearOutput := func() {
+		textOutput.Clear()
+		textOutput.Refresh()
+	}
+
 	for {
 		curses.Update()
 		ch := menuwin.GetChar()
+		clearOutput()
 
 		switch ch {
 		case curses.KEY_ENTER, 10, 13: // if enter is pressed
@@ -282,13 +371,31 @@ func mainWindow() {
 			switch currentItemIdx {
 			case 0:
 				editRunningConfig()
+				printSuccess()
 			case 1:
 				showInterfaces()
+				printSuccess()
 			case 2:
-				commitConfiguration()
+				showARP()
+				printSuccess()
 			case 3:
-				runLinuxTerminal()
+				err := commitConfiguration()
+				if err != nil {
+					printError(err)
+				} else {
+					printSuccess()
+				}
 			case 4:
+				err := stashConfiguration()
+				if err != nil {
+					printError(err)
+				} else {
+					printSuccess()
+				}
+			case 5:
+				runLinuxTerminal()
+				printSuccess()
+			case 6:
 				return
 			default:
 				panic(fmt.Errorf("Cannot determine menu item index"))
