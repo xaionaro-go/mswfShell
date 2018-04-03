@@ -182,7 +182,7 @@ func editRunningConfig() {
 type mswfAPIClientConfig struct {
 	Host   string `defaultValue:"localhost"`
 	Port   int    `defaultValue:"9000"`
-	User   string `defaultValue:"openmswfShell"`
+	User   string `defaultValue:"mswfShell"`
 	Pass   string
 	Scheme string `defaultValue:"http"`
 }
@@ -482,12 +482,12 @@ func commitConfiguration() error {
 
 func runLinuxTerminal() {
 	resetScreen()
-	err := runCommandInTerminal("screen", "-x", "-S", "openmswfShellTerminal")
+	err := runCommandInTerminal("screen", "-x", "-S", "mswfShellTerminal")
 	if err == nil {
 		return
 	}
-	exec.Command("sh", "-c", `kill $(ls /var/run/screen/*/*.openmswfShellTerminal | sed -e 's%.*/%%g' -e 's%\..*%%g') 2>/dev/null`).Run()
-	runCommandInTerminal("screen", "-S", "openmswfShellTerminal", "/bin/bash")
+	exec.Command("sh", "-c", `kill $(ls /var/run/screen/*/*.mswfShellTerminal | sed -e 's%.*/%%g' -e 's%\..*%%g') 2>/dev/null`).Run()
+	runCommandInTerminal("screen", "-S", "mswfShellTerminal", "/bin/bash")
 }
 
 func mainWindow() {
@@ -520,7 +520,7 @@ func mainWindow() {
 
 	// Print centered menu title
 	y, x := menuwin.MaxYX()
-	title := "OpenMSWF"
+	title := "MSWF"
 	menuwin.Box(0, 0)
 	menuwin.ColorOn(1)
 	menuwin.MovePrint(1, (x/2)-(len(title)/2), title)
@@ -530,7 +530,7 @@ func mainWindow() {
 	menuwin.MoveAddChar(2, x-1, curses.ACS_RTEE)
 
 	y, x = window.MaxYX()
-	window.MovePrint(y-2, 2, "tech support: openmswf@ut.mephi.ru")
+	window.MovePrint(y-2, 2, "tech support: mswf@ut.mephi.ru")
 	window.Refresh()
 
 	menu.Post()
