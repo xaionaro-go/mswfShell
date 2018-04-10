@@ -59,13 +59,21 @@ func waitForAnyKey(msg string, validKeys ...term.Key) (event term.Event) {
 }
 
 func openConfigEditor() {
-	args := []string{}
-	if openAtLine >= 0 {
-		args = []string{"+" + strconv.Itoa(openAtLine), "dynamic"}
-	} else {
-		args = []string{"dynamic"}
+	args := []string{"dynamic"}
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "editor"
 	}
-	cmd := exec.Command("editor", args...)
+	if openAtLine >= 0 {
+		lineNumStr := strconv.Itoa(openAtLine)
+		switch editor {
+		case "editor", "vi", "vim", "vim.basic":
+			args = append([]string{"+" + lineNumStr}, args...)
+		case "mcedit":
+			args = []string{args[0] + ":" + lineNumStr}
+		}
+	}
+	cmd := exec.Command(editor, args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout
@@ -468,7 +476,15 @@ func doReloadConfig() error {
 	if err != nil {
 		return err
 	}
-	return mswfAPI.Apply()
+	err = mswfAPI.Apply()
+	if err != nil {
+		return err
+	}
+	err = mswfAPI.Save()
+	if err != nil {
+		fmt.Printf("Got error from mswfAPI.Save(): %v", err.Error())
+	}
+	return nil
 }
 
 func stashConfiguration() error {
@@ -485,7 +501,13 @@ func commitConfiguration() error {
 	if err != nil {
 		return err
 	}
-	return doPushConfig()
+
+	err = doPushConfig()
+	if err != nil {
+		fmt.Printf("Cannot push changed to the git server: %v", err.Error())
+	}
+
+	return nil
 }
 
 func runLinuxTerminal() {
