@@ -171,18 +171,22 @@ func editRunningConfig() {
 	for {
 		clearScreen()
 		openConfigEditor()
-		if !isConfigChanged() {
+		/*if !isConfigChanged() {
 			fmt.Println(`Nothing changed.`)
 			return
-		}
+		}*/
 		if !checkAndReformatConfig() {
 			continue
 		}
-		if !isConfigChanged() {
+		/*if !isConfigChanged() {
 			fmt.Println(`Nothing changed.`)
 			return
+		}*/
+		err := doReloadConfig()
+		if err != nil {
+			fmt.Printf("Got error from doReloadConfig(): %v", err.Error())
+			continue
 		}
-		doReloadConfig()
 		break
 	}
 }
@@ -472,19 +476,23 @@ func showARP() {
 }
 
 func doReloadConfig() error {
+	fmt.Printf("Success. Applying the new config, please wait...\n")
 	err := mswfAPI.Reload()
 	if err != nil {
+		fmt.Printf("Got error from mswfAPI.Reload(): %v", err.Error())
 		return err
 	}
 	err = mswfAPI.Apply()
 	if err != nil {
+		fmt.Printf("Got error from mswfAPI.Apply(): %v", err.Error())
 		return err
 	}
 	err = mswfAPI.Save()
 	if err != nil {
 		fmt.Printf("Got error from mswfAPI.Save(): %v", err.Error())
+		return err
 	}
-	return nil
+	return err
 }
 
 func stashConfiguration() error {
